@@ -70,6 +70,29 @@ export default function App() {
   const [askResponse, setAskResponse] = useState('');
   const [isAsking, setIsAsking] = useState(false);
   const [recommendation, setRecommendation] = useState<{ type: string, reason: string } | null>(null);
+  const [isRecommending, setIsRecommending] = useState(false);
+
+  // UI State for dropdowns
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  /**
+   * AI MANDATORY UPGRADE: Auto-initialize Insights
+   */
+  React.useEffect(() => {
+    handleGenerateInsights();
+  }, []);
+
+  /**
+   * WOW FEATURE: Auto-trigger recommendation on metric change
+   */
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      handleRecommendChart();
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [yAxisKey, currentData]);
 
   const chartColors = {
     revenue: '#4f46e5',
@@ -95,8 +118,11 @@ export default function App() {
     e.preventDefault();
     if (!askQuery.trim()) return;
     setIsAsking(true);
-    const answer = await aiService.askData(askQuery, currentData);
-    setAskResponse(answer);
+    const result = await aiService.askData(askQuery, currentData);
+    setAskResponse(result.answer);
+    if (result.suggestedChart) {
+      setActiveChart(result.suggestedChart as ChartType);
+    }
     setIsAsking(false);
   };
 
@@ -112,8 +138,9 @@ export default function App() {
         const parsed = parseCSV(text) as DashboardData[];
         if (parsed.length > 0) {
           setCurrentData(parsed);
-          // Auto-trigger chart recommendation on new data (WOW feature)
+          // Auto-trigger chart recommendation and insights on new data
           handleRecommendChart();
+          handleGenerateInsights();
         }
       };
       reader.readAsText(file);
@@ -124,8 +151,10 @@ export default function App() {
    * WOW FEATURE: Auto chart recommendation
    */
   const handleRecommendChart = async () => {
+    setIsRecommending(true);
     const rec = await aiService.recommendChart(yAxisKey, currentData);
     setRecommendation(rec);
+    setIsRecommending(false);
   };
 
   const handleExport = () => {
@@ -138,16 +167,45 @@ export default function App() {
     downloadAnchorNode.remove();
   };
 
+  const filteredData = useMemo(() => {
+    if (!searchQuery.trim()) return currentData;
+    const lowerQuery = searchQuery.toLowerCase();
+    return currentData.filter(d => 
+      String(d.month).toLowerCase().includes(lowerQuery) ||
+      String(d.revenue).includes(lowerQuery) ||
+      String(d.users).includes(lowerQuery)
+    );
+  }, [currentData, searchQuery]);
+
   return (
     <div className={cn(
       "flex h-screen overflow-hidden font-sans transition-colors duration-300",
       theme === 'dark' ? "bg-[#020617] text-slate-100" : "bg-[#f8fafc] text-slate-900"
     )}>
+      {/* Dropdown Backdrop */}
+      <AnimatePresence>
+        {(showNotifications || showUserMenu) && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => {
+              setShowNotifications(false);
+              setShowUserMenu(false);
+            }}
+            className={cn(
+              "fixed inset-0 z-40 transition-all",
+              theme === 'dark' ? "bg-black/20" : "bg-black/5"
+            )}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar */}
       <motion.aside 
         initial={false}
         animate={{ width: isSidebarOpen ? 260 : 72 }}
-        className="relative z-30 flex flex-col border-r border-slate-200 bg-[#0f172a] text-slate-300 shadow-xl"
+        className="relative z-30 flex flex-col border-r border-slate-200 bg-[#0f172a] text-slate-300 shadow-xl transition-all duration-500"
       >
         <div className="flex h-14 items-center px-6 border-b border-white/5">
           <div className="flex items-center gap-3">
@@ -183,10 +241,10 @@ export default function App() {
                         onChange={(e) => setYAxisKey(e.target.value as any)}
                         className="w-full appearance-none rounded border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-medium text-slate-300 focus:border-indigo-500 focus:outline-none transition-colors"
                       >
-                        <option value="revenue">REVENUE_STREAM</option>
-                        <option value="users">ACTIVE_NODES</option>
-                        <option value="conversion">FLUX_STABILITY</option>
-                        <option value="anomalies">RISK_VECTORS</option>
+                        <option value="revenue">REVENUE STREAM</option>
+                        <option value="users">ACTIVE NODES</option>
+                        <option value="conversion">FLUX STABILITY</option>
+                        <option value="anomalies">RISK VECTORS</option>
                       </select>
                       <ChevronRight size={10} className="absolute right-3 top-1/2 -translate-y-1/2 rotate-90 opacity-40" />
                     </div>
@@ -262,7 +320,10 @@ export default function App() {
       </motion.aside>
 
       {/* Main Content */}
-      <main className="relative flex flex-1 flex-col overflow-y-auto">
+      <main className={cn(
+        "relative flex flex-1 flex-col overflow-y-auto transition-all duration-500",
+        (showNotifications || showUserMenu) && "pointer-events-none"
+      )}>
         {/* Header */}
         <header className={cn(
           "sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b px-8 backdrop-blur-sm transition-colors",
@@ -290,6 +351,8 @@ export default function App() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-400 transition-colors" size={14} />
               <input 
                 type="text" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Global Search..." 
                 className={cn(
                   "h-9 w-56 rounded-lg border pl-9 pr-3 text-[11px] font-medium transition-all focus:outline-none focus:ring-4 focus:ring-indigo-500/5",
@@ -302,9 +365,66 @@ export default function App() {
                 icon={theme === 'light' ? <Moon size={18} /> : <Sun size={18} />} 
                 onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} 
               />
-              <IconButton icon={<Bell size={18} />} notification />
-              <div className="h-8 w-8 rounded-full border-2 border-white bg-slate-200 overflow-hidden shadow-sm ring-1 ring-slate-200">
-                <img src="https://picsum.photos/seed/user/100/100" referrerPolicy="no-referrer" alt="Avatar" />
+              <div className="relative">
+                <IconButton icon={<Bell size={18} />} notification onClick={() => setShowNotifications(!showNotifications)} />
+                <AnimatePresence>
+                  {showNotifications && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className={cn(
+                        "absolute right-0 mt-2 w-80 rounded-xl border p-4 shadow-2xl z-50",
+                        theme === 'dark' ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+                      )}
+                    >
+                      <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-4">Notifications</h4>
+                      <div className="space-y-3">
+                        {[
+                          { title: "Anomaly Detected", time: "2m ago", type: "critical" },
+                          { title: "Node Upgrade Ready", time: "15m ago", type: "info" },
+                          { title: "Daily Sync Completed", time: "1h ago", type: "success" }
+                        ].map((notif, i) => (
+                          <div key={i} className="flex flex-col gap-1 pb-2 border-b border-white/5 last:border-0 lowercase">
+                            <div className="flex items-center justify-between">
+                              <span className={cn("text-[11px] font-bold", theme === 'dark' ? "text-slate-200" : "text-slate-900")}>{notif.title}</span>
+                              <span className="text-[9px] text-slate-500 italic">{notif.time}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              <div className="relative">
+                <button 
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="h-8 w-8 rounded-full border-2 border-white bg-slate-200 overflow-hidden shadow-sm ring-1 ring-slate-200 hover:ring-indigo-500 transition-all focus:outline-none"
+                >
+                  <img src="https://picsum.photos/seed/user/100/100" referrerPolicy="no-referrer" alt="Avatar" />
+                </button>
+                <AnimatePresence>
+                  {showUserMenu && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className={cn(
+                        "absolute right-0 mt-2 w-48 rounded-xl border p-2 shadow-2xl z-50",
+                        theme === 'dark' ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+                      )}
+                    >
+                      <div className="p-3 border-b border-white/5 mb-1">
+                        <p className={cn("text-xs font-bold", theme === 'dark' ? "text-slate-100" : "text-slate-900")}>Admin User</p>
+                        <p className="text-[10px] text-slate-500">Root Access</p>
+                      </div>
+                      <button className="w-full text-left p-2 text-[11px] font-bold text-slate-500 hover:bg-white/5 hover:text-indigo-400 rounded-lg transition-colors">Profile Settings</button>
+                      <button className="w-full text-left p-2 text-[11px] font-bold text-slate-500 hover:bg-white/5 hover:text-indigo-400 rounded-lg transition-colors">Security Audit</button>
+                      <button className="w-full text-left p-2 text-[11px] font-bold text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors">System Logout</button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
           </div>
@@ -350,12 +470,18 @@ export default function App() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4 relative min-h-[120px]">
               {isAiLoading ? (
-                // Skeletons
-                Array(4).fill(0).map((_, i) => (
-                  <div key={i} className="h-24 animate-pulse rounded-xl bg-slate-200/50 dark:bg-slate-800" />
-                ))
+                <div className="col-span-full flex flex-col items-center justify-center py-12 gap-3">
+                  <div className="relative">
+                    <BrainCircuit size={48} className="text-indigo-500 animate-spin [animation-duration:3s]" />
+                    <Sparkles size={16} className="absolute -top-1 -right-1 text-indigo-400 animate-pulse" />
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-indigo-600">AI Synthesizing Insights</p>
+                    <p className="text-[9px] text-slate-500 animate-pulse">Scanning clusters for anomalies...</p>
+                  </div>
+                </div>
               ) : aiInsights.length > 0 ? (
                 aiInsights.map((insight, i) => (
                   <motion.div
@@ -418,7 +544,20 @@ export default function App() {
                 </form>
 
                 <AnimatePresence mode="wait">
-                  {askResponse && (
+                  {isAsking ? (
+                    <motion.div 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className={cn(
+                        "rounded-xl border p-8 flex flex-col items-center justify-center gap-3",
+                        theme === 'dark' ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-100"
+                      )}
+                    >
+                      <Loader2 size={24} className="text-indigo-500 animate-spin" />
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Consulting Data Model...</p>
+                    </motion.div>
+                  ) : askResponse ? (
                     <motion.div 
                       key={askResponse}
                       initial={{ opacity: 0, y: 10 }}
@@ -434,7 +573,7 @@ export default function App() {
                       </div>
                       <p className="text-xs font-medium leading-relaxed">{askResponse}</p>
                     </motion.div>
-                  )}
+                  ) : null}
                 </AnimatePresence>
               </div>
               
@@ -473,14 +612,24 @@ export default function App() {
                 <div className="flex items-center gap-3">
                   {/* WOW FEATURE: AI Recommendation Badge */}
                   {recommendation && (
-                    <motion.div 
+                    <motion.button 
                       initial={{ scale: 0.8, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
-                      className="hidden 2xl:flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-indigo-600"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setActiveChart(recommendation.type as ChartType)}
+                      className={cn(
+                        "hidden 2xl:flex items-center gap-2 rounded-full border px-3 py-1 transition-all",
+                        activeChart === recommendation.type 
+                          ? "bg-indigo-600 border-indigo-500 text-white" 
+                          : "border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
+                      )}
                     >
                       <BrainCircuit size={12} />
-                      <span className="text-[9px] font-bold uppercase tracking-tight">AI SUGGESTED: {recommendation.type}</span>
-                    </motion.div>
+                      <span className="text-[9px] font-bold uppercase tracking-tight">
+                        {activeChart === recommendation.type ? "OPTIMIZED VIEW" : `SWITCH TO ${recommendation.type}`}
+                      </span>
+                    </motion.button>
                   )}
                   
                   <div className={cn(
@@ -496,7 +645,21 @@ export default function App() {
                 </div>
               </div>
 
-            <div className="h-[400px] w-full">
+            <div className={cn(
+              "h-[400px] w-full relative",
+              isRecommending && "opacity-40 grayscale transition-all duration-500"
+            )}>
+              {isRecommending && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
+                  <div className="relative">
+                    <BrainCircuit size={40} className="text-indigo-500 animate-pulse" />
+                    <div className="absolute inset-0 text-indigo-500 animate-ping opacity-20">
+                      <BrainCircuit size={40} />
+                    </div>
+                  </div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-600">AI Recalibrating View...</p>
+                </div>
+              )}
               <ResponsiveContainer width="100%" height="100%">
                 {activeChart === 'Area' ? (
                   <AreaChart data={currentData}>
@@ -707,7 +870,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className={cn("divide-y text-[11px] font-mono", theme === 'dark' ? "divide-slate-800" : "divide-slate-50")}>
-                    {currentData.map((row, i) => (
+                    {filteredData.map((row, i) => (
                       <tr key={String(row.month) + i} className={cn("group transition-colors", theme === 'dark' ? "hover:bg-slate-800/30" : "hover:bg-slate-50/80")}>
                         <td className="px-6 py-4">
                           <code className={cn("text-[10px] rounded px-1 py-0.5 font-bold transition-colors", theme === 'dark' ? "bg-slate-800 text-slate-500 group-hover:text-indigo-400" : "bg-slate-100 text-slate-500 group-hover:text-indigo-600")}>NODE-{100 + i}</code>
@@ -749,12 +912,23 @@ function MetricCard({ metric, delay, theme }: { metric: any, delay: number, them
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay }}
       className={cn(
-        "relative overflow-hidden group p-6 border rounded-2xl shadow-sm transition-all",
+        "relative overflow-hidden group p-6 border rounded-2xl shadow-sm transition-all cursor-help",
         theme === 'dark' 
           ? "bg-slate-900 border-slate-800 hover:border-indigo-500 shadow-slate-900" 
           : "bg-white border-slate-200 hover:border-indigo-200 shadow-slate-200/50"
       )}
     >
+      {/* Tooltip Overlay */}
+      <div className={cn(
+        "absolute inset-x-4 top-14 z-50 opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none scale-95 group-hover:scale-100 origin-top",
+        "rounded-xl border p-3 shadow-2xl backdrop-blur-xl",
+        theme === 'dark' ? "bg-slate-900/90 border-slate-700 text-slate-300" : "bg-white/95 border-slate-200 text-slate-600"
+      )}>
+        <p className="text-[10px] font-medium leading-relaxed">
+          {metric.description}
+        </p>
+      </div>
+
       <div className="absolute top-0 right-0 p-3 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity">
         <Activity size={64} />
       </div>

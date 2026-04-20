@@ -9,6 +9,7 @@ export interface DashboardData {
 export interface Metric {
   id: string;
   label: string;
+  description: string;
   value: string | number;
   change: number;
   prefix?: string;

@@ -19,6 +19,7 @@ export const KPI_METRICS: Metric[] = [
   {
     id: 'rev',
     label: 'Total Revenue',
+    description: 'The total cumulative revenue generated across all clusters in the current fiscal period.',
     value: 872400,
     change: 12.4,
     prefix: '$',
@@ -28,6 +29,7 @@ export const KPI_METRICS: Metric[] = [
   {
     id: 'usr',
     label: 'Active Users',
+    description: 'Total number of active nodes and unique user sessions currently drawing resources.',
     value: 44000,
     change: 8.2,
     trend: 'up',
@@ -36,6 +38,7 @@ export const KPI_METRICS: Metric[] = [
   {
     id: 'conv',
     label: 'Conversion Rate',
+    description: 'Ratio of user requests successfully processed relative to total traffic volume.',
     value: 5.2,
     suffix: '%',
     change: -1.2,
@@ -45,6 +48,7 @@ export const KPI_METRICS: Metric[] = [
   {
     id: 'anom',
     label: 'System Anomalies',
+    description: 'Number of detected performance outliers or security alerts within the last 24 hours.',
     value: 23,
     change: 4,
     trend: 'up',

@@ -41,20 +41,33 @@ export const aiService = {
 
   /**
    * Interprets a natural language query against the dataset.
+   * Can now also suggest a chart update.
    */
   async askData(query: string, data: DashboardData[]) {
     try {
        const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `You are a data analyst. Answer the user's question based strictly on this dataset. 
-        Keep your answer under 50 words and be professional.
+        If the user asks to change the chart type or view a specific visual, include a suggested chart type.
         Question: ${query}
-        Dataset: ${JSON.stringify(data)}`,
+        Dataset: ${JSON.stringify(data.slice(-5))} 
+        Return JSON with "answer" (string) and "suggestedChart" (optional: "Area", "Line", "Bar", "Pie").`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              answer: { type: Type.STRING },
+              suggestedChart: { type: Type.STRING }
+            },
+            required: ["answer"]
+          }
+        }
       });
-      return response.text || "I couldn't process that query.";
+      return JSON.parse(response.text || "{\"answer\": \"I couldn't process that query.\"}");
     } catch (error) {
        console.error("Ask Data Error:", error);
-       return "System error while processing visual query.";
+       return { answer: "System error while processing visual query." };
     }
   },
 
