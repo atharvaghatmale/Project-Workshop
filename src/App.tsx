@@ -23,7 +23,14 @@ import {
   LayoutDashboard,
   Filter,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Sparkles,
+  MessageSquare,
+  Upload,
+  Moon,
+  Sun,
+  BrainCircuit,
+  Loader2
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -42,9 +49,10 @@ import {
   Cell
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from './lib/utils';
+import { cn, parseCSV } from './lib/utils';
 import { MOCK_DATA, KPI_METRICS, SYSTEM_LOGS } from './constants';
 import { ChartType, DashboardData } from './types';
+import { aiService } from './services/aiService';
 
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -52,6 +60,16 @@ export default function App() {
   const [showGrid, setShowGrid] = useState(true);
   const [showTooltip, setShowTooltip] = useState(true);
   const [yAxisKey, setYAxisKey] = useState<keyof DashboardData>('revenue');
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  // New states for AI and Data features
+  const [currentData, setCurrentData] = useState<DashboardData[]>(MOCK_DATA);
+  const [aiInsights, setAiInsights] = useState<string[]>([]);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [askQuery, setAskQuery] = useState('');
+  const [askResponse, setAskResponse] = useState('');
+  const [isAsking, setIsAsking] = useState(false);
+  const [recommendation, setRecommendation] = useState<{ type: string, reason: string } | null>(null);
 
   const chartColors = {
     revenue: '#4f46e5',
@@ -60,8 +78,58 @@ export default function App() {
     anomalies: '#ef4444',
   };
 
+  /**
+   * AI MANDATORY UPGRADE: Generate Insights
+   */
+  const handleGenerateInsights = async () => {
+    setIsAiLoading(true);
+    const insights = await aiService.generateInsights(currentData);
+    setAiInsights(insights);
+    setIsAiLoading(false);
+  };
+
+  /**
+   * AI MANDATORY UPGRADE: Ask Your Data
+   */
+  const handleAskData = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!askQuery.trim()) return;
+    setIsAsking(true);
+    const answer = await aiService.askData(askQuery, currentData);
+    setAskResponse(answer);
+    setIsAsking(false);
+  };
+
+  /**
+   * MANDATORY UPGRADE: CSV Upload
+   */
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target?.result as string;
+        const parsed = parseCSV(text) as DashboardData[];
+        if (parsed.length > 0) {
+          setCurrentData(parsed);
+          // Auto-trigger chart recommendation on new data (WOW feature)
+          handleRecommendChart();
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  /**
+   * WOW FEATURE: Auto chart recommendation
+   */
+  const handleRecommendChart = async () => {
+    const rec = await aiService.recommendChart(yAxisKey, currentData);
+    setRecommendation(rec);
+  };
+
   const handleExport = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(MOCK_DATA, null, 2));
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(currentData, null, 2));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href",     dataStr);
     downloadAnchorNode.setAttribute("download", "nexus_analytics_export.json");
@@ -71,7 +139,10 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f8fafc] font-sans text-slate-900">
+    <div className={cn(
+      "flex h-screen overflow-hidden font-sans transition-colors duration-300",
+      theme === 'dark' ? "bg-[#020617] text-slate-100" : "bg-[#f8fafc] text-slate-900"
+    )}>
       {/* Sidebar */}
       <motion.aside 
         initial={false}
@@ -147,6 +218,17 @@ export default function App() {
             </div>
 
             <div className="px-3">
+              {isSidebarOpen && <h3 className="mb-4 px-4 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Data Pipeline</h3>}
+              <div className="px-4 space-y-3">
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-700 bg-white/5 py-3 text-[10px] font-bold uppercase text-slate-400 hover:border-indigo-500 hover:bg-white/10 transition-all group">
+                  <Upload size={14} className="group-hover:text-indigo-400" />
+                  <span>{isSidebarOpen ? "Upload CSV" : "CSV"}</span>
+                  <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
+                </label>
+              </div>
+            </div>
+
+            <div className="px-3">
               {isSidebarOpen && <h3 className="mb-4 px-4 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">System Preferences</h3>}
               <div className="space-y-4 px-4">
                 <Toggle label="Grid Overlays" checked={showGrid} onChange={setShowGrid} isOpen={isSidebarOpen} />
@@ -182,13 +264,19 @@ export default function App() {
       {/* Main Content */}
       <main className="relative flex flex-1 flex-col overflow-y-auto">
         {/* Header */}
-        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/80 px-8 backdrop-blur-sm">
+        <header className={cn(
+          "sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b px-8 backdrop-blur-sm transition-colors",
+          theme === 'dark' ? "border-slate-800 bg-[#020617]/80 shadow-slate-900" : "border-slate-200 bg-white/80 shadow-slate-200/50"
+        )}>
           <div className="flex items-center gap-8">
              <div className="flex flex-col">
               <h1 className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">Environment Dashboard</h1>
-              <span className="text-[13px] font-semibold text-slate-900">Cluster Analytics <span className="text-slate-300 font-light mx-2">/</span> <span className="text-indigo-600">Production</span></span>
+              <span className={cn(
+                "text-[13px] font-semibold",
+                theme === 'dark' ? "text-slate-100" : "text-slate-900"
+              )}>Cluster Analytics <span className="text-slate-300 font-light mx-2">/</span> <span className="text-indigo-600">Production</span></span>
              </div>
-             <div className="hidden h-8 w-px bg-slate-200 lg:block" />
+             <div className={cn("hidden h-8 w-px lg:block", theme === 'dark' ? "bg-slate-800" : "bg-slate-200")} />
              <div className="hidden items-center gap-3 lg:flex">
                 <div className="relative">
                   <div className="w-2 h-2 rounded-full bg-emerald-500" />
@@ -203,10 +291,17 @@ export default function App() {
               <input 
                 type="text" 
                 placeholder="Global Search..." 
-                className="h-9 w-56 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-[11px] font-medium transition-all focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/5"
+                className={cn(
+                  "h-9 w-56 rounded-lg border pl-9 pr-3 text-[11px] font-medium transition-all focus:outline-none focus:ring-4 focus:ring-indigo-500/5",
+                  theme === 'dark' ? "border-slate-700 bg-slate-900 text-slate-200 focus:border-indigo-500" : "border-slate-200 bg-slate-50 text-slate-900 focus:border-indigo-400 focus:bg-white"
+                )}
               />
             </div>
             <div className="flex items-center gap-4">
+              <IconButton 
+                icon={theme === 'light' ? <Moon size={18} /> : <Sun size={18} />} 
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} 
+              />
               <IconButton icon={<Bell size={18} />} notification />
               <div className="h-8 w-8 rounded-full border-2 border-white bg-slate-200 overflow-hidden shadow-sm ring-1 ring-slate-200">
                 <img src="https://picsum.photos/seed/user/100/100" referrerPolicy="no-referrer" alt="Avatar" />
@@ -225,28 +320,175 @@ export default function App() {
             </div>
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
               {KPI_METRICS.map((metric, i) => (
-                <MetricCard key={metric.id} metric={metric} delay={i * 0.05} />
+                <MetricCard key={metric.id} metric={metric} delay={i * 0.05} theme={theme} />
               ))}
+            </div>
+          </section>
+
+          {/* AI MANDATORY UPGRADE: Insights Panel */}
+          <section className={cn(
+             "rounded-2xl border p-6 transition-all",
+             theme === 'dark' ? "border-slate-800 bg-slate-900/50" : "bg-indigo-50 border-indigo-100"
+          )}>
+            <div className="mb-6 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500 text-white shadow-lg shadow-indigo-500/20">
+                  <BrainCircuit size={20} />
+                </div>
+                <div>
+                  <h3 className={cn("text-sm font-bold tracking-tight", theme === 'dark' ? "text-white" : "text-slate-900")}>Nexus AI Intelligence</h3>
+                  <p className="text-[11px] font-medium text-slate-400">Automated dataset analysis and situational insights</p>
+                </div>
+              </div>
+              <button 
+                onClick={handleGenerateInsights}
+                disabled={isAiLoading}
+                className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-[10px] font-bold text-white hover:bg-indigo-700 transition-all disabled:opacity-50"
+              >
+                {isAiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                {aiInsights.length > 0 ? "RE-GENERATE" : "GENERATE INSIGHTS"}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {isAiLoading ? (
+                // Skeletons
+                Array(4).fill(0).map((_, i) => (
+                  <div key={i} className="h-24 animate-pulse rounded-xl bg-slate-200/50 dark:bg-slate-800" />
+                ))
+              ) : aiInsights.length > 0 ? (
+                aiInsights.map((insight, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    className={cn(
+                      "flex flex-col justify-between rounded-xl border p-4 transition-all",
+                      theme === 'dark' ? "border-slate-700 bg-slate-800/50" : "border-indigo-100 bg-white"
+                    )}
+                  >
+                    <div className="mb-2 flex h-5 w-5 items-center justify-center rounded bg-indigo-100 text-indigo-600 text-[10px] font-bold">
+                      {i + 1}
+                    </div>
+                    <p className={cn("text-[11px] font-medium leading-relaxed", theme === 'dark' ? "text-slate-300" : "text-slate-600")}>
+                      {insight}
+                    </p>
+                  </motion.div>
+                ))
+              ) : (
+                <div className="col-span-full py-8 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                  <p className="text-xs font-medium text-slate-400 italic">No insights generated. Click the button to analyze data.</p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* AI MANDATORY UPGRADE: Ask Your Data */}
+          <section className={cn(
+             "rounded-2xl border p-6 overflow-hidden relative",
+             theme === 'dark' ? "border-slate-800 bg-slate-900" : "bg-white border-slate-200"
+          )}>
+            <div className="absolute top-0 right-0 p-8 opacity-[0.03] pointer-events-none">
+              <MessageSquare size={120} />
+            </div>
+            <div className="relative z-10 flex flex-col md:flex-row gap-8">
+              <div className="flex-1">
+                <h3 className={cn("text-sm font-bold tracking-tight mb-1", theme === 'dark' ? "text-white" : "text-slate-900")}>Visual Query Interface</h3>
+                <p className="text-[11px] font-medium text-slate-400 mb-6">Ask natural language questions about your environment clusters</p>
+                
+                <form onSubmit={handleAskData} className="relative mb-6">
+                  <input 
+                    type="text" 
+                    value={askQuery}
+                    onChange={(e) => setAskQuery(e.target.value)}
+                    placeholder="Example: Which month had the highest signal stability?" 
+                    className={cn(
+                      "w-full rounded-xl border py-4 pl-5 pr-32 text-xs font-medium focus:outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all",
+                      theme === 'dark' ? "bg-slate-800 border-slate-700 text-white placeholder:text-slate-500" : "bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400"
+                    )}
+                  />
+                  <button 
+                    disabled={isAsking}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 h-9 px-4 rounded-lg bg-indigo-600 text-[10px] font-bold text-white hover:bg-indigo-700 transition-all flex items-center gap-2"
+                  >
+                    {isAsking ? <Loader2 size={12} className="animate-spin" /> : <BrainCircuit size={12} />}
+                    RUN QUERY
+                  </button>
+                </form>
+
+                <AnimatePresence mode="wait">
+                  {askResponse && (
+                    <motion.div 
+                      key={askResponse}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className={cn(
+                        "rounded-xl border p-4 flex gap-4",
+                        theme === 'dark' ? "bg-indigo-900/20 border-indigo-800/30 text-indigo-200" : "bg-indigo-50 border-indigo-100 text-indigo-900"
+                      )}
+                    >
+                      <div className="mt-0.5 shrink-0">
+                        <Sparkles size={16} className="text-indigo-500" />
+                      </div>
+                      <p className="text-xs font-medium leading-relaxed">{askResponse}</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              
+              <div className="w-full md:w-64 shrink-0">
+                <div className={cn("p-4 rounded-xl border border-dashed", theme === 'dark' ? "border-slate-800" : "border-slate-200")}>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-3">Model Capabilities</p>
+                  <ul className="space-y-2">
+                    {['Natural Queries', 'Trend Identification', 'Cluster Health Insights', 'Anomaly Summarization'].map(cap => (
+                      <li key={cap} className="flex items-center gap-2 text-[10px] font-bold text-slate-500">
+                        <div className="w-1 h-1 rounded-full bg-indigo-500" />
+                        {cap}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </div>
           </section>
 
           {/* Main Visualization Area */}
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-4">
-            <section className="lg:col-span-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm shadow-slate-200/50">
+            <section className={cn(
+               "lg:col-span-3 rounded-2xl border p-6 transition-all",
+               theme === 'dark' ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+            )}>
               <div className="mb-6 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
                     <TrendingUp size={18} />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-slate-900 tracking-tight">Performance Vector Analysis</h3>
+                    <h3 className={cn("text-sm font-bold tracking-tight", theme === 'dark' ? "text-white" : "text-slate-900")}>Performance Vector Analysis</h3>
                     <p className="text-[11px] font-medium text-slate-400">Real-time telemetry from production clusters</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="hidden h-8 items-center gap-2 rounded-full border border-slate-100 bg-slate-50 px-3 md:flex">
+                  {/* WOW FEATURE: AI Recommendation Badge */}
+                  {recommendation && (
+                    <motion.div 
+                      initial={{ scale: 0.8, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="hidden 2xl:flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-indigo-600"
+                    >
+                      <BrainCircuit size={12} />
+                      <span className="text-[9px] font-bold uppercase tracking-tight">AI SUGGESTED: {recommendation.type}</span>
+                    </motion.div>
+                  )}
+                  
+                  <div className={cn(
+                    "hidden h-8 items-center gap-2 rounded-full border px-3 md:flex",
+                    theme === 'dark' ? "bg-slate-800 border-slate-700" : "bg-slate-50 border-slate-100"
+                  )}>
                     <div className="h-2 w-2 rounded-full" style={{ backgroundColor: chartColors[yAxisKey] }} />
-                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-tight">{yAxisKey}</span>
+                    <span className={cn("text-[10px] font-bold uppercase tracking-tight", theme === 'dark' ? "text-slate-400" : "text-slate-600")}>{yAxisKey}</span>
                   </div>
                   <button className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-colors">
                     <Maximize2 size={16} />
@@ -257,20 +499,20 @@ export default function App() {
             <div className="h-[400px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 {activeChart === 'Area' ? (
-                  <AreaChart data={MOCK_DATA}>
+                  <AreaChart data={currentData}>
                     <defs>
                       <linearGradient id="colorMetric" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor={chartColors[yAxisKey]} stopOpacity={0.1}/>
                         <stop offset="95%" stopColor={chartColors[yAxisKey]} stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    {showGrid && <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />}
+                    {showGrid && <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#1e293b' : '#e2e8f0'} />}
                     <XAxis 
                       dataKey="month" 
                       fontSize={10} 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{ fill: '#94a3b8' }} 
+                      tick={{ fill: '#64748b' }} 
                       minTickGap={20}
                       preserveStartEnd="preserveStartEnd"
                     />
@@ -278,10 +520,10 @@ export default function App() {
                       fontSize={10} 
                       axisLine={false} 
                       tickLine={false} 
-                      tick={{ fill: '#94a3b8' }}
+                      tick={{ fill: '#64748b' }}
                       tickFormatter={(val) => val >= 1000 ? `${(val/1000).toFixed(0)}k` : val}
                     />
-                    {showTooltip && <Tooltip content={<CustomTooltip />} cursor={{ fill: 'transparent' }} />}
+                    {showTooltip && <Tooltip content={<CustomTooltip theme={theme} />} cursor={{ fill: 'transparent' }} />}
                     <Area 
                       type="monotone" 
                       dataKey={yAxisKey} 
@@ -292,26 +534,26 @@ export default function App() {
                     />
                   </AreaChart>
                 ) : activeChart === 'Line' ? (
-                  <LineChart data={MOCK_DATA}>
-                    {showGrid && <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />}
-                    <XAxis dataKey="month" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8' }} minTickGap={20}/>
-                    <YAxis fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8' }} />
-                    {showTooltip && <Tooltip content={<CustomTooltip />} />}
-                    <Line type="monotone" dataKey={yAxisKey} stroke={chartColors[yAxisKey]} strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 6 }} />
+                  <LineChart data={currentData}>
+                    {showGrid && <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#1e293b' : '#e2e8f0'} />}
+                    <XAxis dataKey="month" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} minTickGap={20}/>
+                    <YAxis fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
+                    {showTooltip && <Tooltip content={<CustomTooltip theme={theme} />} />}
+                    <Line type="monotone" dataKey={yAxisKey} stroke={chartColors[yAxisKey]} strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: theme === 'dark' ? '#020617' : '#fff' }} activeDot={{ r: 6 }} />
                   </LineChart>
                 ) : activeChart === 'Bar' ? (
-                  <BarChart data={MOCK_DATA}>
-                    {showGrid && <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />}
-                    <XAxis dataKey="month" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8' }} />
-                    <YAxis fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8' }} />
-                    {showTooltip && <Tooltip content={<CustomTooltip />} />}
+                  <BarChart data={currentData}>
+                    {showGrid && <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#1e293b' : '#e2e8f0'} />}
+                    <XAxis dataKey="month" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
+                    <YAxis fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
+                    {showTooltip && <Tooltip content={<CustomTooltip theme={theme} />} />}
                     <Bar dataKey={yAxisKey} fill={chartColors[yAxisKey]} radius={[4, 4, 0, 0]} barSize={24} />
                   </BarChart>
                 ) : (
                   <PieChart>
                     <Pie
-                      data={MOCK_DATA}
-                      dataKey="revenue"
+                      data={currentData}
+                      dataKey={yAxisKey === 'anomalies' ? 'revenue' : yAxisKey} // Pie needs positive values
                       nameKey="month"
                       cx="50%"
                       cy="50%"
@@ -319,27 +561,40 @@ export default function App() {
                       outerRadius={120}
                       paddingAngle={5}
                     >
-                      {MOCK_DATA.map((_, index) => (
+                      {currentData.map((_, index) => (
                         <Cell key={`cell-${index}`} fill={[ '#4f46e5', '#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe', '#e0e7ff'][index % 6]} />
                       ))}
                     </Pie>
-                    {showTooltip && <Tooltip />}
+                    {showTooltip && <Tooltip itemStyle={{ color: '#fff' }} contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px' }} />}
                   </PieChart>
                 )}
               </ResponsiveContainer>
             </div>
+            
+            {/* WOW FEATURE: AI Justification for chart */}
+            {recommendation && (
+              <div className="mt-4 flex items-start gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 p-3">
+                <Info size={14} className="mt-0.5 text-indigo-500 shrink-0" />
+                <p className="text-[10px] font-medium text-slate-500 leading-normal">
+                  <span className="font-bold text-indigo-500">AI Note:</span> {recommendation.reason}
+                </p>
+              </div>
+            )}
           </section>
 
             {/* Sidebar Context Panel */}
             <aside className="space-y-6">
-               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50">
+               <div className={cn(
+                 "rounded-2xl border p-5 transition-all",
+                 theme === 'dark' ? "bg-slate-900 border-slate-800 shadow-slate-900" : "bg-white border-slate-200 shadow-slate-200/50"
+               )}>
                   <h3 className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Node Allocation</h3>
                   <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                          data={MOCK_DATA}
-                          dataKey="revenue"
+                          data={currentData}
+                          dataKey={yAxisKey === 'anomalies' ? 'revenue' : yAxisKey}
                           nameKey="month"
                           cx="50%"
                           cy="50%"
@@ -348,7 +603,7 @@ export default function App() {
                           paddingAngle={4}
                           stroke="none"
                         >
-                          {MOCK_DATA.map((_, index) => (
+                          {currentData.map((_, index) => (
                             <Cell 
                               key={`cell-${index}`} 
                               fill={[
@@ -359,18 +614,18 @@ export default function App() {
                             />
                           ))}
                         </Pie>
-                        <Tooltip content={<CustomTooltip />} />
+                        <Tooltip content={<CustomTooltip theme={theme} />} />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
                   <div className="mt-4 grid grid-cols-2 gap-2">
-                    <div className="rounded-lg bg-slate-50 p-2 text-center">
+                    <div className={cn("rounded-lg p-2 text-center", theme === 'dark' ? "bg-slate-800" : "bg-slate-50")}>
                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">Avg Health</p>
                       <p className="text-sm font-bold text-emerald-600">98.2%</p>
                     </div>
-                    <div className="rounded-lg bg-slate-50 p-2 text-center">
+                    <div className={cn("rounded-lg p-2 text-center", theme === 'dark' ? "bg-slate-800" : "bg-slate-50")}>
                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">Uptime</p>
-                      <p className="text-sm font-bold text-slate-900">99.9h</p>
+                      <p className={cn("text-sm font-bold", theme === 'dark' ? "text-slate-100" : "text-slate-900")}>99.9h</p>
                     </div>
                   </div>
                </div>
@@ -426,10 +681,16 @@ export default function App() {
             </div>
 
             {/* Performance Data Table */}
-            <section className="lg:col-span-12 xl:col-span-7 rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50 overflow-hidden">
-              <div className="border-b border-slate-100 bg-white px-6 py-4 flex items-center justify-between">
+            <section className={cn(
+              "lg:col-span-12 xl:col-span-7 rounded-2xl border transition-all overflow-hidden",
+              theme === 'dark' ? "bg-slate-900 border-slate-800 shadow-slate-900" : "bg-white border-slate-200 shadow-slate-200/50"
+            )}>
+              <div className={cn("border-b px-6 py-4 flex items-center justify-between", theme === 'dark' ? "border-slate-800 bg-slate-900" : "border-slate-100 bg-white")}>
                  <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Master Execution Audit</h2>
-                 <button className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-1.5 text-[10px] font-bold text-indigo-600 hover:bg-indigo-50 transition-colors uppercase">
+                 <button className={cn(
+                   "flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] font-bold transition-colors uppercase",
+                   theme === 'dark' ? "bg-slate-800 text-slate-200 hover:bg-slate-700" : "bg-slate-50 text-indigo-600 hover:bg-indigo-50"
+                 )}>
                   <Download size={12} />
                   Download CSV
                  </button>
@@ -437,7 +698,7 @@ export default function App() {
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-left">
                   <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50/50">
+                    <tr className={cn("border-b", theme === 'dark' ? "border-slate-800 bg-slate-800/20" : "border-slate-100 bg-slate-50/50")}>
                       <th className="px-6 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Node_ID</th>
                       <th className="px-6 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Timestamp</th>
                       <th className="px-6 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right">Throughput</th>
@@ -445,27 +706,27 @@ export default function App() {
                       <th className="px-6 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-center">Stability</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50 text-[11px] font-mono">
-                    {MOCK_DATA.map((row, i) => (
-                      <tr key={row.month} className="group hover:bg-slate-50/80 transition-colors">
+                  <tbody className={cn("divide-y text-[11px] font-mono", theme === 'dark' ? "divide-slate-800" : "divide-slate-50")}>
+                    {currentData.map((row, i) => (
+                      <tr key={String(row.month) + i} className={cn("group transition-colors", theme === 'dark' ? "hover:bg-slate-800/30" : "hover:bg-slate-50/80")}>
                         <td className="px-6 py-4">
-                          <code className="text-[10px] bg-slate-100 rounded px-1 py-0.5 text-slate-500 group-hover:text-indigo-600 font-bold">NODE-{100 + i}</code>
+                          <code className={cn("text-[10px] rounded px-1 py-0.5 font-bold transition-colors", theme === 'dark' ? "bg-slate-800 text-slate-500 group-hover:text-indigo-400" : "bg-slate-100 text-slate-500 group-hover:text-indigo-600")}>NODE-{100 + i}</code>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-slate-900 font-bold">{row.month.toUpperCase()} 24</span>
+                          <span className={cn("font-bold", theme === 'dark' ? "text-slate-400" : "text-slate-900")}>{String(row.month).toUpperCase()} 24</span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <span className="font-bold text-slate-800">${(row.revenue/1000).toFixed(1)}k</span>
+                          <span className={cn("font-bold", theme === 'dark' ? "text-indigo-400" : "text-slate-800")}>${(Number(row.revenue)/1000).toFixed(1)}k</span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <span className="text-slate-500">{(row.users/10).toFixed(0)}%</span>
+                          <span className="text-slate-500">{(Number(row.users)/10).toFixed(0)}%</span>
                         </td>
                         <td className="px-6 py-4 text-center">
                           <div className={cn(
-                              "inline-flex items-center gap-1.5 rounded bg-slate-50 px-2 py-0.5 text-[9px] font-bold uppercase",
-                              row.anomalies > 2 ? "text-rose-600 bg-rose-50" : "text-emerald-600 bg-emerald-50"
+                              "inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[9px] font-bold uppercase",
+                              Number(row.anomalies) > 2 ? "text-rose-600 bg-rose-50 dark:bg-rose-950/20" : "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/20"
                           )}>
-                            {row.anomalies > 2 ? 'De-Stabilized' : 'Encrypted'}
+                            {Number(row.anomalies) > 2 ? 'De-Stabilized' : 'Encrypted'}
                           </div>
                         </td>
                       </tr>
@@ -481,13 +742,18 @@ export default function App() {
   );
 }
 
-function MetricCard({ metric, delay }: { metric: any, delay: number, key?: string }) {
+function MetricCard({ metric, delay, theme }: { metric: any, delay: number, theme: string, key?: string }) {
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay }}
-      className="relative overflow-hidden group bg-white p-6 border border-slate-200 rounded-2xl shadow-sm shadow-slate-200/50 hover:border-indigo-200 hover:shadow-indigo-500/5 transition-all"
+      className={cn(
+        "relative overflow-hidden group p-6 border rounded-2xl shadow-sm transition-all",
+        theme === 'dark' 
+          ? "bg-slate-900 border-slate-800 hover:border-indigo-500 shadow-slate-900" 
+          : "bg-white border-slate-200 hover:border-indigo-200 shadow-slate-200/50"
+      )}
     >
       <div className="absolute top-0 right-0 p-3 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity">
         <Activity size={64} />
@@ -497,16 +763,16 @@ function MetricCard({ metric, delay }: { metric: any, delay: number, key?: strin
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em]">{metric.label}</span>
           <div className={cn(
               "px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1",
-              metric.status === 'positive' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+              metric.status === 'positive' ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20" : "bg-rose-50 text-rose-600 dark:bg-rose-950/20"
           )}>
               {metric.change >= 0 ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
               {Math.abs(metric.change)}%
           </div>
         </div>
-        <div className="text-3xl font-bold text-slate-900 tracking-tighter font-mono">
+        <div className={cn("text-3xl font-bold tracking-tighter font-mono", theme === 'dark' ? "text-white" : "text-slate-900")}>
           {metric.prefix}{metric.value.toLocaleString()}{metric.suffix}
         </div>
-        <div className="mt-6 flex items-center justify-between border-t border-slate-50 pt-4">
+        <div className={cn("mt-6 flex items-center justify-between border-t pt-4", theme === 'dark' ? "border-slate-800" : "border-slate-50")}>
            <div className="flex items-center gap-1.5">
               <div className={cn("w-1.5 h-1.5 rounded-full animate-pulse", metric.status === 'positive' ? "bg-emerald-500" : "bg-rose-500")} />
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Signal: Active</span>
@@ -518,11 +784,14 @@ function MetricCard({ metric, delay }: { metric: any, delay: number, key?: strin
   );
 }
 
-function IconButton({ icon, notification }: { icon: ReactNode, notification?: boolean }) {
+function IconButton({ icon, notification, onClick }: { icon: ReactNode, notification?: boolean, onClick?: () => void }) {
   return (
-    <button className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 transition-colors">
+    <button 
+      onClick={onClick}
+      className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+    >
       {icon}
-      {notification && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-indigo-600 ring-2 ring-white"></span>}
+      {notification && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-indigo-600 ring-2 ring-white dark:ring-slate-900"></span>}
     </button>
   );
 }
@@ -590,18 +859,21 @@ function Toggle({ label, checked, onChange, isOpen }: { label: string, checked: 
   );
 }
 
-function CustomTooltip({ active, payload, label }: any) {
+function CustomTooltip({ active, payload, label, theme }: any) {
   if (active && payload && payload.length) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur-md">
+      <div className={cn(
+        "rounded-xl border p-4 shadow-2xl backdrop-blur-md",
+        theme === 'dark' ? "bg-slate-900/90 border-slate-700 shadow-black" : "bg-white/95 border-slate-200 shadow-slate-200/50"
+      )}>
         <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">{label} Analysis</p>
         <div className="space-y-2">
           {payload.map((entry: any, i: number) => (
-            <div key={i} className="flex items-center justify-between gap-8 py-1 border-b border-slate-50 last:border-0">
+            <div key={i} className={cn("flex items-center justify-between gap-8 py-1 border-b last:border-0", theme === 'dark' ? "border-slate-800" : "border-slate-50")}>
                <span className="text-[10px] font-bold uppercase text-slate-500 tracking-tight">
                 {entry.name}
                </span>
-               <span className="text-xs font-mono font-bold text-slate-900">
+               <span className={cn("text-xs font-mono font-bold", theme === 'dark' ? "text-slate-100" : "text-slate-900")}>
                 {entry.name === 'revenue' ? '$' : ''}{entry.value.toLocaleString()}
                </span>
             </div>
